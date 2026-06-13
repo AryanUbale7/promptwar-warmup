@@ -201,7 +201,7 @@ Respond ONLY with the JSON object. Do not wrap in markdown \`\`\`json blocks. Do
       if (googleApiKey.trim()) {
         // Live Gemini API call
         try {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey.trim()}`, {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${googleApiKey.trim()}`, {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json'
