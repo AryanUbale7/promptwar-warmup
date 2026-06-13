@@ -38,7 +38,7 @@ function App() {
     return sessionStorage.getItem('CLAUDE_MEAL_PLANNER_API_KEY') || '';
   });
   const [googleApiKey, setGoogleApiKey] = useState(() => {
-    return sessionStorage.getItem('GOOGLE_AI_STUDIO_API_KEY') || '';
+    return sessionStorage.getItem('GOOGLE_AI_STUDIO_API_KEY') || import.meta.env.VITE_GOOGLE_API_KEY || '';
   });
   const [isDemoMode, setIsDemoMode] = useState(true); // Default to Demo Mode for seamless evaluation
 
