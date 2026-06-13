@@ -37,6 +37,9 @@ function App() {
   const [apiKey, setApiKey] = useState(() => {
     return sessionStorage.getItem('CLAUDE_MEAL_PLANNER_API_KEY') || '';
   });
+  const [googleApiKey, setGoogleApiKey] = useState(() => {
+    return sessionStorage.getItem('GOOGLE_AI_STUDIO_API_KEY') || '';
+  });
   const [isDemoMode, setIsDemoMode] = useState(true); // Default to Demo Mode for seamless evaluation
 
   // Status / Results State
@@ -61,6 +64,15 @@ function App() {
       sessionStorage.removeItem('CLAUDE_MEAL_PLANNER_API_KEY');
     }
   }, [apiKey]);
+
+  // Save Google API key in session storage when changed
+  useEffect(() => {
+    if (googleApiKey) {
+      sessionStorage.setItem('GOOGLE_AI_STUDIO_API_KEY', googleApiKey);
+    } else {
+      sessionStorage.removeItem('GOOGLE_AI_STUDIO_API_KEY');
+    }
+  }, [googleApiKey]);
 
   // Focus step heading when transitioning steps
   useEffect(() => {
@@ -154,35 +166,7 @@ function App() {
     const sanitizedDesc = sanitizeInput(dayDescription);
     const sanitizedIngredients = sanitizeInput(ownedIngredients);
     
-    if (isDemoMode) {
-      // Simulate real API network lag
-      setTimeout(() => {
-        try {
-          const mockPlan = generateMockMealPlan({
-            dayDescription: sanitizedDesc,
-            peopleCount,
-            skillLevel,
-            budget,
-            currency,
-            dietaryRestrictions,
-            ownedIngredients: sanitizedIngredients
-          });
-          
-          if (!mockPlan.breakfast?.name && !mockPlan.lunch?.name && !mockPlan.dinner?.name) {
-            setStatus('empty');
-          } else {
-            setResults(mockPlan);
-            setStatus('success');
-          }
-        } catch (err) {
-          setErrorMsg('Failed to generate plan. Please try again.');
-          setStatus('error');
-        }
-      }, 1500);
-      return;
-    }
-
-    // Live API Call configuration
+    // Prompt structure
     const builtPrompt = `
 Generate a daily meal plan with the following user requirements:
 - Day Description: "${sanitizedDesc}"
@@ -213,6 +197,96 @@ You MUST respond with a single, valid JSON object that conforms EXACTLY to the f
 Respond ONLY with the JSON object. Do not wrap in markdown \`\`\`json blocks. Do not add any preamble or markdown fences.
 `;
 
+    if (isDemoMode) {
+      if (googleApiKey.trim()) {
+        // Live Gemini API call
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${googleApiKey.trim()}`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+              contents: [{
+                parts: [{
+                  text: builtPrompt
+                }]
+              }],
+              generationConfig: {
+                responseMimeType: "application/json"
+              }
+            })
+          });
+
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(`Google AI Studio API error: ${response.status} ${errorText || 'Unknown error'}`);
+          }
+
+          const data = await response.json();
+          const contentText = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+          if (!contentText) {
+            throw new Error('Empty response received from Gemini API.');
+          }
+
+          let cleanJson = contentText.trim();
+          if (cleanJson.startsWith("```")) {
+            cleanJson = cleanJson.replace(/^```(?:json)?\s*/i, "");
+            cleanJson = cleanJson.replace(/\s*```$/, "");
+          }
+          cleanJson = cleanJson.trim();
+
+          const parsedData = JSON.parse(cleanJson);
+          
+          // Validate schema keys
+          const required = ['breakfast', 'lunch', 'dinner', 'grocery_list', 'substitutions', 'budget_summary'];
+          const missing = required.filter(key => !parsedData.hasOwnProperty(key));
+          if (missing.length > 0) {
+            throw new Error(`Invalid schema structure from Gemini. Missing keys: ${missing.join(', ')}`);
+          }
+
+          const isEmpty = !parsedData.breakfast?.name && !parsedData.lunch?.name && !parsedData.dinner?.name;
+          if (isEmpty) {
+            setStatus('empty');
+          } else {
+            setResults(parsedData);
+            setStatus('success');
+          }
+        } catch (err) {
+          console.error(err);
+          setErrorMsg(err.message || 'An error occurred while connecting to the Gemini API.');
+          setStatus('error');
+        }
+      } else {
+        // Fallback to local mock data (No Key)
+        setTimeout(() => {
+          try {
+            const mockPlan = generateMockMealPlan({
+              dayDescription: sanitizedDesc,
+              peopleCount,
+              skillLevel,
+              budget,
+              currency,
+              dietaryRestrictions,
+              ownedIngredients: sanitizedIngredients
+            });
+            
+            if (!mockPlan.breakfast?.name && !mockPlan.lunch?.name && !mockPlan.dinner?.name) {
+              setStatus('empty');
+            } else {
+              setResults(mockPlan);
+              setStatus('success');
+            }
+          } catch (err) {
+            setErrorMsg('Failed to generate plan. Please try again.');
+            setStatus('error');
+          }
+        }, 1500);
+      }
+      return;
+    }
+
+    // Live Claude API Call configuration
     try {
       const response = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
@@ -1203,6 +1277,34 @@ ${(results.budget_summary?.tips || []).map(tip => `  ${bullet} ${tip}`).join('\n
                       {validationErrors.apiKey}
                     </span>
                   )}
+                </div>
+              </section>
+            )}
+
+            {isDemoMode && (
+              <section className="api-key-banner" style={{ backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }} aria-labelledby="google-api-setup-title">
+                <div className="api-key-banner-title" id="google-api-setup-title" style={{ color: '#166534' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d="M12.65 11.65l2.1-2.1c.7-.7.7-1.9 0-2.6s-1.9-.7-2.6 0l-2.1 2.1c-.38-.05-.76-.08-1.15-.08C5.86 8.97 3 11.83 3 15.38c0 3.55 2.86 6.42 6.42 6.42 3.55 0 6.42-2.86 6.42-6.42 0-.39-.03-.77-.08-1.15l3.52-3.52c.2-.2.32-.47.32-.76v-2.1c0-.55-.45-1-1-1h-2.1c-.29 0-.56.12-.76.32l-1.1 1.1c-.2-.2-.47-.32-.76-.32h-2.1c-.55 0-1 .45-1 1v2.1c0 .29.12.56.32.76l.46.46zm-3.23 6.65c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
+                  </svg>
+                  <span>Google AI Studio Integration (Optional)</span>
+                </div>
+                <div className="api-key-banner-desc" style={{ color: '#14532D' }}>
+                  Enter your Google AI Studio API Key to upgrade the demo from local mock data to real, live generation using Gemini 1.5 Flash.
+                </div>
+                <div className="form-group" style={{ marginTop: '0.25rem' }}>
+                  <label htmlFor="google-api-key-input" className="form-label" style={{ color: '#166534', fontSize: '0.75rem' }}>
+                    Gemini API Key
+                  </label>
+                  <input
+                    id="google-api-key-input"
+                    type="password"
+                    className="form-control"
+                    placeholder="AIzaSy..."
+                    value={googleApiKey}
+                    onChange={(e) => setGoogleApiKey(e.target.value)}
+                    style={{ minHeight: '38px', padding: '0.5rem 0.75rem', borderColor: '#86EFAC' }}
+                  />
                 </div>
               </section>
             )}
