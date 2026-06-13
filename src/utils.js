@@ -14,7 +14,8 @@ export const sanitizeInput = (text) => {
   if (!text) return '';
   return text
     .replace(/<[^>]*>?/gm, '') // Strip HTML
-    .replace(/[{}[\]\\]/g, ' ') // Strip raw brackets that can confuse JSON schema prompt
+    .replace(/[{}[\]\\]/g, ' ') // Strip raw brackets
+    .replace(/"/g, '\\"') // Escape double quotes to prevent prompt injection
     .trim();
 };
 
