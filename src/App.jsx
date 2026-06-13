@@ -292,7 +292,7 @@ ${(results.budget_summary?.tips || []).map(tip => `  ${bullet} ${tip}`).join('\n
                   <input 
                     type="checkbox" 
                     checked={!isDemoMode}
-                    onChange={(e) => setIsDemoMode(e.target.checked)}
+                    onChange={() => setIsDemoMode(!isDemoMode)}
                   />
                   <span className="slider"></span>
                 </label>
