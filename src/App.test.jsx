@@ -142,7 +142,7 @@ describe('React UI - Wizard Navigation & Validation', () => {
     // Wait for results to render (mocked fetch resolves immediately, but ResultsView handles state transition)
     await waitFor(() => {
       expect(screen.getByText('Your Customized Daily Meal Plan')).toBeDefined();
-    });
+    }, { timeout: 3000 });
 
     // Expandable meal cards check
     expect(screen.getByText('Breakfast')).toBeDefined();

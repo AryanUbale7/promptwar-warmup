@@ -16,7 +16,6 @@ export default function Step2({
   touched,
   setTouched,
   isDemoMode,
-  apiKey,
   focusedChipIndex,
   setFocusedChipIndex
 }) {
@@ -53,12 +52,6 @@ export default function Step2({
       >
         Step 2: Budget & Preferences
       </h2>
-
-      {!isDemoMode && !apiKey.trim() && (
-        <div className="error-message" style={{ margin: '0 0 1.5rem 0', padding: '0.75rem 1rem', backgroundColor: '#FEF2F2', borderRadius: '8px', border: '1px solid #FCA5A5', lineHeight: '1.4' }}>
-          <strong>Configuration Required:</strong> Anthropic API Key (<code>VITE_CLAUDE_API_KEY</code>) is not configured in the environment variables. Please configure it in your Netlify site settings or local env to use Live API Mode.
-        </div>
-      )}
 
       <div className="form-grid two-cols">
         <div className="form-group">

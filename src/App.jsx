@@ -21,10 +21,7 @@ function App() {
   const [dietaryRestrictions, setDietaryRestrictions] = useState([]);
   const [ownedIngredients, setOwnedIngredients] = useState('');
 
-  // API Config State
-  const [apiKey, setApiKey] = useState(() => {
-    return sessionStorage.getItem('CLAUDE_MEAL_PLANNER_API_KEY') || import.meta.env.VITE_CLAUDE_API_KEY || '';
-  });
+  // API Config State - Google AI Studio API Key for local dev overrides
   const [googleApiKey, setGoogleApiKey] = useState(() => {
     return sessionStorage.getItem('GOOGLE_AI_STUDIO_API_KEY') || import.meta.env.VITE_GOOGLE_API_KEY || '';
   });
@@ -50,15 +47,7 @@ function App() {
   // References for accessibility focus management
   const stepHeadingRef = useRef(null);
 
-  // Save API keys in session storage when changed
-  useEffect(() => {
-    if (apiKey) {
-      sessionStorage.setItem('CLAUDE_MEAL_PLANNER_API_KEY', apiKey);
-    } else {
-      sessionStorage.removeItem('CLAUDE_MEAL_PLANNER_API_KEY');
-    }
-  }, [apiKey]);
-
+  // Save API key in session storage when changed
   useEffect(() => {
     if (googleApiKey) {
       sessionStorage.setItem('GOOGLE_AI_STUDIO_API_KEY', googleApiKey);
@@ -88,15 +77,12 @@ function App() {
     if (isNaN(budgetNum) || budgetNum <= 0) {
       errors.budget = 'Please enter a valid daily budget greater than 0.';
     }
-    if (!isDemoMode && !apiKey.trim()) {
-      errors.apiKey = 'Anthropic API key is not configured.';
-    }
     return errors;
-  }, [dayDescription, peopleCount, budget, isDemoMode, apiKey]);
+  }, [dayDescription, peopleCount, budget]);
 
   // Validation state checks
   const isStep1Valid = !validationErrors.dayDescription && !validationErrors.peopleCount;
-  const isStep2Valid = isStep1Valid && !validationErrors.budget && (isDemoMode || apiKey.trim().length > 0);
+  const isStep2Valid = isStep1Valid && !validationErrors.budget;
 
   // Wizard navigation handlers
   const handleNext = () => {
@@ -126,7 +112,7 @@ function App() {
     );
   };
 
-  // Trigger meal generation via backend proxy
+  // Trigger meal generation
   const handleGenerate = async () => {
     setTouched({
       dayDescription: true,
@@ -142,10 +128,13 @@ function App() {
     setCurrentStep(3);
     setExpandedMeal(null);
 
-    const providerType = isDemoMode ? 'gemini' : 'claude';
+    // If Demo Mode, directly use the offline mock generator
+    if (isDemoMode) {
+      runLocalMockFallback();
+      return;
+    }
 
-    // If Demo Mode and no key entered, try server first.
-    // If it fails with "Key not configured", fall back to mock data generator.
+    // Otherwise (Live API Mode), fetch the server endpoint to run Gemini
     try {
       const response = await fetch('/api/generate', {
         method: 'POST',
@@ -160,22 +149,14 @@ function App() {
           currency,
           dietaryRestrictions,
           ownedIngredients,
-          provider: providerType,
-          googleApiKey: isDemoMode ? googleApiKey : undefined,
-          apiKey: !isDemoMode ? apiKey : undefined
+          provider: 'gemini',
+          googleApiKey: googleApiKey || undefined
         })
       });
 
       if (!response.ok) {
         const errJson = await response.json().catch(() => ({}));
         const errMessage = errJson.error || `Server returned status ${response.status}`;
-        
-        // Check for key configuration fallback in Demo Mode
-        if (isDemoMode && (errMessage.includes('Key is not configured') || response.status === 400)) {
-          console.warn('Falling back to local mock data generator...');
-          runLocalMockFallback();
-          return;
-        }
         throw new Error(errMessage);
       }
 
@@ -196,14 +177,8 @@ function App() {
       }
     } catch (err) {
       console.error(err);
-      
-      if (isDemoMode) {
-        console.warn('Network call failed in Demo Mode, falling back to local mock data...');
-        runLocalMockFallback();
-      } else {
-        setErrorMsg(err.message || 'An error occurred while connecting to the proxy API.');
-        setStatus('error');
-      }
+      setErrorMsg(err.message || 'An error occurred while connecting to the proxy API.');
+      setStatus('error');
     }
   };
 
@@ -359,7 +334,6 @@ ${(results.budget_summary?.tips || []).map(tip => `  ${bullet} ${tip}`).join('\n
               touched={touched}
               setTouched={setTouched}
               isDemoMode={isDemoMode}
-              apiKey={apiKey}
               focusedChipIndex={focusedChipIndex}
               setFocusedChipIndex={setFocusedChipIndex}
             />
