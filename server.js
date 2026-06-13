@@ -31,19 +31,83 @@ app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
 
-// Escapes double quotes to prevent prompt injection
+// Escapes double quotes
 function escapeQuotes(str) {
   if (!str) return '';
   return str.replace(/"/g, '\\"');
 }
 
-// Strip HTML and JSON brackets for prompt safety
+// Strict Prompt Injection Sanitizer
 function sanitizeInput(text) {
   if (!text) return '';
-  return text
-    .replace(/<[^>]*>?/gm, '') // Strip HTML
-    .replace(/[{}[\]\\]/g, ' ') // Strip raw brackets
-    .trim();
+  let cleaned = text
+    .replace(/<[^>]*>?/gm, '') // Strip HTML tags
+    .replace(/[{}[\]\\]/g, ' ') // Strip raw brackets/braces
+    .replace(/[`<>]/g, '') // Strip backticks, <, >
+    .replace(/"/g, '\\"') // Escape double quotes
+    .replace(/\n{3,}/g, '\n\n'); // Clamp newlines to max 2 consecutive
+
+  // Remove prompt injection keywords (case-insensitive)
+  const blocked = [
+    /ignore previous instructions/gi,
+    /system:/gi,
+    /assistant:/gi
+  ];
+  for (const pattern of blocked) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+
+  return cleaned.trim();
+}
+
+// Schema Validator
+function validateMealPlanSchema(parsed) {
+  if (!parsed || typeof parsed !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+  const topKeys = ['breakfast', 'lunch', 'dinner', 'grocery_list', 'substitutions', 'budget_summary'];
+  for (const k of topKeys) {
+    if (!(k in parsed)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  }
+  
+  const validateMeal = (meal) => {
+    if (!meal || typeof meal !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof meal.name !== 'string' || !meal.name.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof meal.prep_time !== 'string' || !meal.prep_time.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (!Array.isArray(meal.steps) || meal.steps.length === 0) throw new Error("SCHEMA_VALIDATION_FAILED");
+    for (const s of meal.steps) {
+      if (typeof s !== 'string' || !s.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    }
+  };
+
+  validateMeal(parsed.breakfast);
+  validateMeal(parsed.lunch);
+  validateMeal(parsed.dinner);
+
+  if (!Array.isArray(parsed.grocery_list)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  for (const item of parsed.grocery_list) {
+    if (!item || typeof item !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof item.item !== 'string' || !item.item.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof item.quantity !== 'string' || !item.quantity.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof item.estimated_cost !== 'string' || !item.estimated_cost.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+  }
+
+  if (!Array.isArray(parsed.substitutions)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  for (const sub of parsed.substitutions) {
+    if (!sub || typeof sub !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof sub.original !== 'string' || typeof sub.substitute !== 'string' || typeof sub.reason !== 'string') {
+      throw new Error("SCHEMA_VALIDATION_FAILED");
+    }
+  }
+
+  const bs = parsed.budget_summary;
+  if (!bs || typeof bs !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+  if (typeof bs.total_estimated !== 'string' || !bs.total_estimated.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+  if (!['low', 'medium', 'high'].includes(String(bs.feasibility).toLowerCase())) throw new Error("SCHEMA_VALIDATION_FAILED");
+  if (!Array.isArray(bs.tips)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  for (const tip of bs.tips) {
+    if (typeof tip !== 'string' || !tip.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+  }
+
+  return true;
 }
 
 app.post('/api/generate', async (req, res) => {
@@ -62,18 +126,19 @@ app.post('/api/generate', async (req, res) => {
   if (!dayDescription || dayDescription.trim().length < 20) {
     return res.status(400).json({ error: 'Description must be at least 20 characters.' });
   }
-  const count = parseInt(peopleCount, 10);
-  if (isNaN(count) || count < 1 || count > 20) {
-    return res.status(400).json({ error: 'People count must be between 1 and 20.' });
-  }
-  const budgetVal = parseFloat(budget);
-  if (isNaN(budgetVal) || budgetVal <= 0) {
+
+  const parsedBudget = parseFloat(budget);
+  if (isNaN(parsedBudget) || parsedBudget <= 0) {
     return res.status(400).json({ error: 'Budget must be greater than 0.' });
   }
+  
+  // Clamp numeric values securely
+  const count = Math.min(20, Math.max(1, parseInt(peopleCount, 10) || 1));
+  const budgetVal = Math.min(100000, Math.max(1, parsedBudget));
 
   // Sanitize and escape inputs
-  const cleanDesc = escapeQuotes(sanitizeInput(dayDescription));
-  const cleanIngredients = escapeQuotes(sanitizeInput(ownedIngredients));
+  const cleanDesc = sanitizeInput(dayDescription);
+  const cleanIngredients = sanitizeInput(ownedIngredients);
 
   // Build the prompt securely
   const builtPrompt = `
@@ -149,6 +214,7 @@ Respond ONLY with the JSON object. Do not wrap in markdown \`\`\`json blocks. Do
       cleanJson = cleanJson.trim();
 
       const parsedData = JSON.parse(cleanJson);
+      validateMealPlanSchema(parsedData);
       return res.json(parsedData);
 
     } else if (provider === 'claude') {
@@ -190,13 +256,34 @@ Respond ONLY with the JSON object. Do not wrap in markdown \`\`\`json blocks. Do
       cleanJson = cleanJson.trim();
 
       const parsedData = JSON.parse(cleanJson);
+      validateMealPlanSchema(parsedData);
       return res.json(parsedData);
     } else {
       return res.status(400).json({ error: `Unsupported API provider: ${provider}` });
     }
   } catch (error) {
-    console.error('Proxy Error:', error);
-    return res.status(500).json({ error: error.message || 'Error occurred during generation.' });
+    if (process.env.NODE_ENV !== 'production') {
+      console.error('Proxy Error:', error);
+    }
+
+    let errorType = 'ERR_UNKNOWN';
+    let errorMessage = 'An unexpected error occurred. Please try again.';
+
+    if (error.message === 'SCHEMA_VALIDATION_FAILED') {
+      errorType = 'ERR_SCHEMA';
+      errorMessage = 'The meal plan was incomplete. Please regenerate.';
+    } else if (error instanceof SyntaxError) {
+      errorType = 'ERR_PARSE';
+      errorMessage = 'The meal plan response was unreadable. Please regenerate.';
+    } else if (error.message.includes('fetch') || error.message.includes('network') || error.code === 'ENOTFOUND') {
+      errorType = 'ERR_NETWORK';
+      errorMessage = 'Connection failed. Check your internet and try again.';
+    } else if (error.message.includes('timeout') || error.message.includes('abort')) {
+      errorType = 'ERR_TIMEOUT';
+      errorMessage = 'Request timed out. Please try again.';
+    }
+
+    return res.status(500).json({ error: errorMessage, type: errorType });
   }
 });
 

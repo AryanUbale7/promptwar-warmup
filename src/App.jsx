@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { sanitizeInput, generateMockMealPlan } from './utils';
+import { sanitizeInput, generateMockMealPlan, validateMealPlanSchema, buildPrompt } from './utils';
 import ProgressTracker from './components/ProgressTracker';
 import Step1 from './components/Step1';
 import Step2 from './components/Step2';
 import ResultsView from './components/ResultsView';
 import './App.css';
+
+const ERR_NETWORK = 'ERR_NETWORK';
+const ERR_PARSE = 'ERR_PARSE';
+const ERR_SCHEMA = 'ERR_SCHEMA';
+const ERR_TIMEOUT = 'ERR_TIMEOUT';
+const ERR_UNKNOWN = 'ERR_UNKNOWN';
 
 function App() {
   // Navigation / Wizard State
@@ -12,38 +18,38 @@ function App() {
   
   // Step 1 State
   const [dayDescription, setDayDescription] = useState(() => {
-    return sessionStorage.getItem('MEAL_PLANNER_DAY_DESC') || '';
+    return sessionStorage.getItem('mealplanner_v1_day_desc') || '';
   });
   const [peopleCount, setPeopleCount] = useState(() => {
-    const val = sessionStorage.getItem('MEAL_PLANNER_PEOPLE_COUNT');
+    const val = sessionStorage.getItem('mealplanner_v1_people_count');
     return val ? parseInt(val, 10) : 1;
   });
   const [skillLevel, setSkillLevel] = useState(() => {
-    return sessionStorage.getItem('MEAL_PLANNER_SKILL_LEVEL') || 'Beginner';
+    return sessionStorage.getItem('mealplanner_v1_skill_level') || 'Beginner';
   });
 
   // Step 2 State
   const [budget, setBudget] = useState(() => {
-    return sessionStorage.getItem('MEAL_PLANNER_BUDGET') || '';
+    return sessionStorage.getItem('mealplanner_v1_budget') || '';
   });
   const [currency, setCurrency] = useState(() => {
-    return sessionStorage.getItem('MEAL_PLANNER_CURRENCY') || 'INR';
+    return sessionStorage.getItem('mealplanner_v1_currency') || 'INR';
   });
   const [dietaryRestrictions, setDietaryRestrictions] = useState(() => {
     try {
-      const stored = sessionStorage.getItem('MEAL_PLANNER_DIETARY');
+      const stored = sessionStorage.getItem('mealplanner_v1_dietary');
       return stored ? JSON.parse(stored) : [];
     } catch {
       return [];
     }
   });
   const [ownedIngredients, setOwnedIngredients] = useState(() => {
-    return sessionStorage.getItem('MEAL_PLANNER_OWNED_INGREDIENTS') || '';
+    return sessionStorage.getItem('mealplanner_v1_owned_ingredients') || '';
   });
 
   // API Config State - Google AI Studio API Key for local dev overrides
   const [googleApiKey, setGoogleApiKey] = useState(() => {
-    return sessionStorage.getItem('GOOGLE_AI_STUDIO_API_KEY') || import.meta.env.VITE_GOOGLE_API_KEY || '';
+    return sessionStorage.getItem('mealplanner_v1_google_api_key') || import.meta.env.VITE_GOOGLE_API_KEY || '';
   });
   const [isDemoMode, setIsDemoMode] = useState(true); // Default to Demo Mode for seamless evaluation
 
@@ -67,23 +73,45 @@ function App() {
   // References for accessibility focus management
   const stepHeadingRef = useRef(null);
 
+  // Register window beforeunload event to clear sessionStorage when tab/window is closed
+  useEffect(() => {
+    const handleBeforeUnload = () => {
+      const keys = [
+        'mealplanner_v1_day_desc',
+        'mealplanner_v1_people_count',
+        'mealplanner_v1_skill_level',
+        'mealplanner_v1_budget',
+        'mealplanner_v1_currency',
+        'mealplanner_v1_dietary',
+        'mealplanner_v1_owned_ingredients',
+        'mealplanner_v1_google_api_key'
+      ];
+      keys.forEach(k => sessionStorage.removeItem(k));
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, []);
+
   // Save API key and form state in session storage when changed
   useEffect(() => {
     if (googleApiKey) {
-      sessionStorage.setItem('GOOGLE_AI_STUDIO_API_KEY', googleApiKey);
+      sessionStorage.setItem('mealplanner_v1_google_api_key', googleApiKey);
     } else {
-      sessionStorage.removeItem('GOOGLE_AI_STUDIO_API_KEY');
+      sessionStorage.removeItem('mealplanner_v1_google_api_key');
     }
   }, [googleApiKey]);
 
   useEffect(() => {
-    sessionStorage.setItem('MEAL_PLANNER_DAY_DESC', dayDescription);
-    sessionStorage.setItem('MEAL_PLANNER_PEOPLE_COUNT', peopleCount.toString());
-    sessionStorage.setItem('MEAL_PLANNER_SKILL_LEVEL', skillLevel);
-    sessionStorage.setItem('MEAL_PLANNER_BUDGET', budget);
-    sessionStorage.setItem('MEAL_PLANNER_CURRENCY', currency);
-    sessionStorage.setItem('MEAL_PLANNER_DIETARY', JSON.stringify(dietaryRestrictions));
-    sessionStorage.setItem('MEAL_PLANNER_OWNED_INGREDIENTS', ownedIngredients);
+    sessionStorage.setItem('mealplanner_v1_day_desc', dayDescription);
+    sessionStorage.setItem('mealplanner_v1_people_count', peopleCount.toString());
+    sessionStorage.setItem('mealplanner_v1_skill_level', skillLevel);
+    sessionStorage.setItem('mealplanner_v1_budget', budget);
+    sessionStorage.setItem('mealplanner_v1_currency', currency);
+    sessionStorage.setItem('mealplanner_v1_dietary', JSON.stringify(dietaryRestrictions));
+    sessionStorage.setItem('mealplanner_v1_owned_ingredients', ownedIngredients);
   }, [dayDescription, peopleCount, skillLevel, budget, currency, dietaryRestrictions, ownedIngredients]);
 
   // Focus step heading when transitioning steps
@@ -109,6 +137,19 @@ function App() {
     }
     return errors;
   }, [dayDescription, peopleCount, budget]);
+
+  // Memoize Prompt Builder
+  const memoizedPrompt = useMemo(() => {
+    return buildPrompt({
+      dayDescription,
+      peopleCount,
+      skillLevel,
+      budget,
+      currency,
+      dietaryRestrictions,
+      ownedIngredients
+    });
+  }, [dayDescription, peopleCount, skillLevel, budget, currency, dietaryRestrictions, ownedIngredients]);
 
   // Validation state checks
   const isStep1Valid = !validationErrors.dayDescription && !validationErrors.peopleCount;
@@ -165,37 +206,73 @@ function App() {
     }
 
     // Otherwise (Live API Mode), fetch the server endpoint to run Gemini
-    try {
-      const response = await fetch('/api/generate', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          dayDescription,
-          peopleCount,
-          skillLevel,
-          budget,
-          currency,
-          dietaryRestrictions,
-          ownedIngredients,
-          provider: 'gemini',
-          googleApiKey: googleApiKey || undefined
-        })
-      });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout
 
-      if (!response.ok) {
-        const errJson = await response.json().catch(() => ({}));
-        const errMessage = errJson.error || `Server returned status ${response.status}`;
-        throw new Error(errMessage);
+    try {
+      let response;
+      try {
+        response = await fetch('/api/generate', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({
+            dayDescription,
+            peopleCount,
+            skillLevel,
+            budget,
+            currency,
+            dietaryRestrictions,
+            ownedIngredients,
+            provider: 'gemini',
+            googleApiKey: googleApiKey || undefined
+          }),
+          signal: controller.signal
+        });
+      } catch (fetchErr) {
+        if (fetchErr.name === 'AbortError') {
+          const err = new Error("Request timed out. Please try again.");
+          err.code = ERR_TIMEOUT;
+          throw err;
+        } else {
+          const err = new Error("Connection failed. Check your internet and try again.");
+          err.code = ERR_NETWORK;
+          throw err;
+        }
+      } finally {
+        clearTimeout(timeoutId);
       }
 
-      const parsedData = await response.json();
-      
-      const required = ['breakfast', 'lunch', 'dinner', 'grocery_list', 'substitutions', 'budget_summary'];
-      const missing = required.filter(key => !parsedData.hasOwnProperty(key));
-      if (missing.length > 0) {
-        throw new Error(`Invalid schema structure from API. Missing keys: ${missing.join(', ')}`);
+      if (!response.ok) {
+        let errJson = {};
+        try {
+          errJson = await response.json();
+        } catch {
+          // Ignore parse error on error payload
+        }
+        const errMsg = errJson.error || `Server returned status ${response.status}`;
+        const errType = errJson.type || ERR_UNKNOWN;
+        const err = new Error(errMsg);
+        err.code = errType;
+        throw err;
+      }
+
+      let parsedData;
+      try {
+        parsedData = await response.json();
+      } catch {
+        const err = new Error("The meal plan response was unreadable. Please regenerate.");
+        err.code = ERR_PARSE;
+        throw err;
+      }
+
+      try {
+        validateMealPlanSchema(parsedData);
+      } catch {
+        const err = new Error("The meal plan was incomplete. Please regenerate.");
+        err.code = ERR_SCHEMA;
+        throw err;
       }
 
       const isEmpty = !parsedData.breakfast?.name && !parsedData.lunch?.name && !parsedData.dinner?.name;
@@ -206,8 +283,24 @@ function App() {
         setStatus('success');
       }
     } catch (err) {
-      console.error(err);
-      setErrorMsg(err.message || 'An error occurred while connecting to the proxy API.');
+      if (import.meta.env.DEV) {
+        console.error('API Error:', err);
+      }
+
+      let finalMsg = '';
+      if (err.code === ERR_NETWORK) {
+        finalMsg = "Connection failed. Check your internet and try again.";
+      } else if (err.code === ERR_PARSE) {
+        finalMsg = "The meal plan response was unreadable. Please regenerate.";
+      } else if (err.code === ERR_SCHEMA || err.message === 'SCHEMA_VALIDATION_FAILED') {
+        finalMsg = "The meal plan was incomplete. Please regenerate.";
+      } else if (err.code === ERR_TIMEOUT) {
+        finalMsg = "Request timed out. Please try again.";
+      } else {
+        finalMsg = err.message || "An unexpected error occurred. Please try again.";
+      }
+
+      setErrorMsg(finalMsg);
       setStatus('error');
     }
   };
@@ -224,7 +317,15 @@ function App() {
           dietaryRestrictions,
           ownedIngredients: sanitizeInput(ownedIngredients)
         });
-        
+
+        try {
+          validateMealPlanSchema(mockPlan);
+        } catch {
+          const err = new Error("The meal plan was incomplete. Please regenerate.");
+          err.code = ERR_SCHEMA;
+          throw err;
+        }
+
         if (!mockPlan.breakfast?.name && !mockPlan.lunch?.name && !mockPlan.dinner?.name) {
           setStatus('empty');
         } else {
@@ -232,7 +333,10 @@ function App() {
           setStatus('success');
         }
       } catch (err) {
-        setErrorMsg('Failed to generate plan. Please try again.');
+        if (import.meta.env.DEV) {
+          console.error('Mock fallback error:', err);
+        }
+        setErrorMsg('The meal plan was incomplete. Please regenerate.');
         setStatus('error');
       }
     }, 1200);
@@ -295,8 +399,27 @@ ${(results.budget_summary?.tips || []).map(tip => `  ${bullet} ${tip}`).join('\n
     });
   };
 
+  const srOnlyStyle = {
+    position: 'absolute',
+    width: '1px',
+    height: '1px',
+    padding: '0',
+    margin: '-1px',
+    overflow: 'hidden',
+    clip: 'rect(0, 0, 0, 0)',
+    border: '0'
+  };
+
   return (
     <main className="app-container">
+      <span style={srOnlyStyle} aria-live="polite">
+        {currentStep === 1 
+          ? "Step 1 of 3: Describe Your Day" 
+          : currentStep === 2 
+            ? "Step 2 of 3: Budget and Preferences" 
+            : "Step 3 of 3: Your Customized Daily Meal Plan"
+        }
+      </span>
       <div className="card">
         {/* Header Section (Always Visible) */}
         <header className="header-section">

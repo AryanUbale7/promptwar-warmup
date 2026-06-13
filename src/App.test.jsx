@@ -149,4 +149,141 @@ describe('React UI - Wizard Navigation & Validation', () => {
     expect(screen.getByText('Lunch')).toBeDefined();
     expect(screen.getByText('Dinner')).toBeDefined();
   });
+
+  test('Validation: submit with day description < 20 characters expect inline error, no API call', async () => {
+    const fetchSpy = vi.spyOn(global, 'fetch');
+    render(<App />);
+
+    const textarea = screen.getByLabelText(/What does your day look like\?/i);
+    fireEvent.change(textarea, { target: { value: 'Too short' } });
+
+    const nextBtn = screen.getByRole('button', { name: /Proceed to step 2/i });
+    fireEvent.click(nextBtn);
+
+    expect(screen.getByText(/Describe your day in at least 20 characters/i)).toBeDefined();
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  test('Validation: submit with people count = 0 expect clamped to 1 or inline error', async () => {
+    render(<App />);
+
+    const textarea = screen.getByLabelText(/What does your day look like\?/i);
+    fireEvent.change(textarea, { target: { value: 'Working hard all day in the office and need healthy dinners' } });
+
+    const countInput = screen.getByLabelText(/How many people are you cooking for\?/i);
+    fireEvent.change(countInput, { target: { value: '0' } });
+    expect(countInput.value).toBe('1'); // clamped to 1
+  });
+
+  test('Validation: submit with budget = -50 expect clamped to 1 or inline error', async () => {
+    render(<App />);
+
+    // Step 1
+    const textarea = screen.getByLabelText(/What does your day look like\?/i);
+    fireEvent.change(textarea, { target: { value: 'Working hard all day in the office and need healthy dinners' } });
+    fireEvent.click(screen.getByRole('button', { name: /Proceed to step 2/i }));
+
+    // Step 2 - Input budget -50
+    const budgetInput = screen.getByLabelText(/Daily food budget\?/i);
+    fireEvent.change(budgetInput, { target: { value: '-50' } });
+
+    // Click Generate
+    const generateBtn = screen.getByRole('button', { name: /Generate meal plan/i });
+    fireEvent.click(generateBtn);
+
+    // expect inline error because budget is <= 0
+    expect(screen.getByText(/Please enter a valid daily budget greater than 0/i)).toBeDefined();
+  });
+
+  test('API error handling: mock fetch to reject expect ERR_NETWORK message to appear in DOM', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn().mockRejectedValue(new TypeError('Failed to fetch'));
+
+    render(<App />);
+
+    // Disable Demo Mode to trigger live API call
+    const modeToggle = screen.getByLabelText(/API Integration Mode/i).querySelector('input');
+    if (modeToggle) {
+      fireEvent.click(modeToggle);
+    }
+
+    // Step 1
+    const textarea = screen.getByLabelText(/What does your day look like\?/i);
+    fireEvent.change(textarea, { target: { value: 'Working hard all day in the office and need healthy dinners' } });
+    fireEvent.click(screen.getByRole('button', { name: /Proceed to step 2/i }));
+
+    // Step 2 - Input budget
+    const budgetInput = screen.getByLabelText(/Daily food budget\?/i);
+    fireEvent.change(budgetInput, { target: { value: '500' } });
+
+    // Click Generate
+    const generateBtn = screen.getByRole('button', { name: /Generate meal plan/i });
+    fireEvent.click(generateBtn);
+
+    // Verify error is shown in DOM with ERR_NETWORK classification
+    await waitFor(() => {
+      expect(screen.getByText(/Connection failed. Check your internet and try again./i)).toBeDefined();
+    });
+
+    global.fetch = originalFetch;
+  });
+
+  test('Schema validation: mock API to return JSON missing the dinner key expect ERR_SCHEMA message to appear, no crash', async () => {
+    const originalFetch = global.fetch;
+    global.fetch = vi.fn().mockResolvedValue({
+      ok: true,
+      json: () => Promise.resolve({
+        breakfast: { name: 'Toast', prep_time: '5 mins', steps: ['Toast it'] },
+        lunch: { name: 'Salad', prep_time: '10 mins', steps: ['Mix it'] },
+        // dinner is missing
+        grocery_list: [],
+        substitutions: [],
+        budget_summary: { total_estimated: '$10', feasibility: 'high', tips: [] }
+      })
+    });
+
+    render(<App />);
+
+    const modeToggle = screen.getByLabelText(/API Integration Mode/i).querySelector('input');
+    if (modeToggle) {
+      fireEvent.click(modeToggle);
+    }
+
+    // Step 1
+    const textarea = screen.getByLabelText(/What does your day look like\?/i);
+    fireEvent.change(textarea, { target: { value: 'Working hard all day in the office and need healthy dinners' } });
+    fireEvent.click(screen.getByRole('button', { name: /Proceed to step 2/i }));
+
+    // Step 2 - Input budget
+    const budgetInput = screen.getByLabelText(/Daily food budget\?/i);
+    fireEvent.change(budgetInput, { target: { value: '500' } });
+
+    // Click Generate
+    const generateBtn = screen.getByRole('button', { name: /Generate meal plan/i });
+    fireEvent.click(generateBtn);
+
+    // Verify error is shown in DOM with ERR_SCHEMA classification
+    await waitFor(() => {
+      expect(screen.getByText(/The meal plan was incomplete. Please regenerate./i)).toBeDefined();
+    });
+
+    global.fetch = originalFetch;
+  });
+
+  test('sessionStorage: after form fill, simulate beforeunload expect storage keys to be cleared', async () => {
+    render(<App />);
+
+    const textarea = screen.getByLabelText(/What does your day look like\?/i);
+    fireEvent.change(textarea, { target: { value: 'Working hard all day in the office and need healthy dinners' } });
+
+    // Storage keys should be set in sessionStorage
+    expect(sessionStorage.getItem('mealplanner_v1_day_desc')).toBe('Working hard all day in the office and need healthy dinners');
+
+    // Trigger beforeunload event on window
+    window.dispatchEvent(new Event('beforeunload'));
+
+    // Storage keys should be removed
+    expect(sessionStorage.getItem('mealplanner_v1_day_desc')).toBeNull();
+  });
 });

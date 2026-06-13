@@ -12,11 +12,24 @@ export const DIETARY_OPTIONS = [
 // Sanitize input helper
 export const sanitizeInput = (text) => {
   if (!text) return '';
-  return text
-    .replace(/<[^>]*>?/gm, '') // Strip HTML
-    .replace(/[{}[\]\\]/g, ' ') // Strip raw brackets
-    .replace(/"/g, '\\"') // Escape double quotes to prevent prompt injection
-    .trim();
+  let cleaned = text
+    .replace(/<[^>]*>?/gm, '') // Strip HTML tags
+    .replace(/[{}[\]\\]/g, ' ') // Strip raw brackets/braces
+    .replace(/[`<>]/g, '') // Strip backticks, <, >
+    .replace(/"/g, '\\"') // Escape double quotes
+    .replace(/\n{3,}/g, '\n\n'); // Clamp newlines to max 2 consecutive
+
+  // Remove prompt injection keywords (case-insensitive)
+  const blocked = [
+    /ignore previous instructions/gi,
+    /system:/gi,
+    /assistant:/gi
+  ];
+  for (const pattern of blocked) {
+    cleaned = cleaned.replace(pattern, '');
+  }
+
+  return cleaned.trim();
 };
 
 // Helper to generate dynamic mock data based on input parameters
@@ -166,4 +179,102 @@ export const getFeasibilityColor = (level) => {
     default:
       return { bg: '#F3F4F6', text: '#374151', border: '#E5E7EB', dot: '#9CA3AF' };
   }
+};
+
+// Validates the received LLM JSON output structure strictly
+export const validateMealPlanSchema = (parsed) => {
+  if (!parsed || typeof parsed !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+  const topKeys = ['breakfast', 'lunch', 'dinner', 'grocery_list', 'substitutions', 'budget_summary'];
+  for (const k of topKeys) {
+    if (!(k in parsed)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  }
+  
+  const validateMeal = (meal) => {
+    if (!meal || typeof meal !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof meal.name !== 'string' || !meal.name.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof meal.prep_time !== 'string' || !meal.prep_time.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (!Array.isArray(meal.steps) || meal.steps.length === 0) throw new Error("SCHEMA_VALIDATION_FAILED");
+    for (const s of meal.steps) {
+      if (typeof s !== 'string' || !s.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    }
+  };
+
+  validateMeal(parsed.breakfast);
+  validateMeal(parsed.lunch);
+  validateMeal(parsed.dinner);
+
+  if (!Array.isArray(parsed.grocery_list)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  for (const item of parsed.grocery_list) {
+    if (!item || typeof item !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof item.item !== 'string' || !item.item.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof item.quantity !== 'string' || !item.quantity.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof item.estimated_cost !== 'string' || !item.estimated_cost.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+  }
+
+  if (!Array.isArray(parsed.substitutions)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  for (const sub of parsed.substitutions) {
+    if (!sub || typeof sub !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+    if (typeof sub.original !== 'string' || typeof sub.substitute !== 'string' || typeof sub.reason !== 'string') {
+      throw new Error("SCHEMA_VALIDATION_FAILED");
+    }
+  }
+
+  const bs = parsed.budget_summary;
+  if (!bs || typeof bs !== 'object') throw new Error("SCHEMA_VALIDATION_FAILED");
+  if (typeof bs.total_estimated !== 'string' || !bs.total_estimated.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+  if (!['low', 'medium', 'high'].includes(String(bs.feasibility).toLowerCase())) throw new Error("SCHEMA_VALIDATION_FAILED");
+  if (!Array.isArray(bs.tips)) throw new Error("SCHEMA_VALIDATION_FAILED");
+  for (const tip of bs.tips) {
+    if (typeof tip !== 'string' || !tip.trim()) throw new Error("SCHEMA_VALIDATION_FAILED");
+  }
+
+  return true;
+};
+
+// Compiles prompt payload statically
+export const buildPrompt = (inputs) => {
+  const cleanDesc = sanitizeInput(inputs.dayDescription);
+  const cleanIngredients = sanitizeInput(inputs.ownedIngredients);
+  
+  // Clamping numeric values securely
+  const rawCount = parseInt(inputs.peopleCount, 10);
+  const count = Math.min(20, Math.max(1, isNaN(rawCount) ? 1 : rawCount));
+  
+  const rawBudget = parseFloat(inputs.budget);
+  const budgetVal = Math.min(100000, Math.max(1, isNaN(rawBudget) ? 1 : rawBudget));
+  
+  const currencySymbol = inputs.currency === 'INR' ? '₹' : '$';
+  const dietaryStr = (inputs.dietaryRestrictions || []).length > 0 
+    ? inputs.dietaryRestrictions.join(', ') 
+    : 'None';
+    
+  return `
+Generate a daily meal plan with the following user requirements:
+- Day Description: "${cleanDesc}"
+- Number of people to cook for: ${count}
+- Cooking skill level: ${inputs.skillLevel}
+- Budget: ${currencySymbol}${budgetVal} per day
+- Dietary Restrictions: ${dietaryStr}
+- Ingredients already at home: "${cleanIngredients || 'None'}"
+
+You MUST respond with a single, valid JSON object that conforms EXACTLY to the following schema:
+{
+  "breakfast": { "name": "string", "prep_time": "string", "steps": ["string", "string"] },
+  "lunch": { "name": "string", "prep_time": "string", "steps": ["string", "string"] },
+  "dinner": { "name": "string", "prep_time": "string", "steps": ["string", "string"] },
+  "grocery_list": [
+    { "item": "string", "quantity": "string", "estimated_cost": "string" }
+  ],
+  "substitutions": [
+    { "original": "string", "substitute": "string", "reason": "string" }
+  ],
+  "budget_summary": { 
+    "total_estimated": "string", 
+    "feasibility": "low" | "medium" | "high", 
+    "tips": ["string", "string"] 
+  }
+}
+
+Respond ONLY with the JSON object. Do not wrap in markdown \`\`\`json blocks. Do not add any preamble or markdown fences.
+`.trim();
 };
