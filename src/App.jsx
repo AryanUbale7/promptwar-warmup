@@ -35,7 +35,7 @@ function App() {
 
   // API Config State
   const [apiKey, setApiKey] = useState(() => {
-    return sessionStorage.getItem('CLAUDE_MEAL_PLANNER_API_KEY') || '';
+    return sessionStorage.getItem('CLAUDE_MEAL_PLANNER_API_KEY') || import.meta.env.VITE_CLAUDE_API_KEY || '';
   });
   const [googleApiKey, setGoogleApiKey] = useState(() => {
     return sessionStorage.getItem('GOOGLE_AI_STUDIO_API_KEY') || import.meta.env.VITE_GOOGLE_API_KEY || '';
@@ -104,7 +104,7 @@ function App() {
         errors.budget = 'Please enter a valid daily budget greater than 0.';
       }
       if (!isDemoMode && !apiKey.trim()) {
-        errors.apiKey = 'Anthropic API key is required when Demo Mode is disabled.';
+        errors.apiKey = 'Anthropic API key is not configured in the environment variables (VITE_CLAUDE_API_KEY).';
       }
     }
     return errors;
@@ -1246,68 +1246,7 @@ ${(results.budget_summary?.tips || []).map(tip => `  ${bullet} ${tip}`).join('\n
               </div>
             </div>
 
-            {/* API Key Inline input when Demo Mode is turned off */}
-            {!isDemoMode && (
-              <section className="api-key-banner" aria-labelledby="api-setup-title">
-                <div className="api-key-banner-title" id="api-setup-title">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M12.65 11.65l2.1-2.1c.7-.7.7-1.9 0-2.6s-1.9-.7-2.6 0l-2.1 2.1c-.38-.05-.76-.08-1.15-.08C5.86 8.97 3 11.83 3 15.38c0 3.55 2.86 6.42 6.42 6.42 3.55 0 6.42-2.86 6.42-6.42 0-.39-.03-.77-.08-1.15l3.52-3.52c.2-.2.32-.47.32-.76v-2.1c0-.55-.45-1-1-1h-2.1c-.29 0-.56.12-.76.32l-1.1 1.1c-.2-.2-.47-.32-.76-.32h-2.1c-.55 0-1 .45-1 1v2.1c0 .29.12.56.32.76l.46.46zm-3.23 6.65c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                  </svg>
-                  <span>API Configuration</span>
-                </div>
-                <div className="api-key-banner-desc">
-                  This app calls Anthropic's Claude API directly from your browser. Input your key below. It remains local in your session memory.
-                </div>
-                <div className="form-group" style={{ marginTop: '0.25rem' }}>
-                  <label htmlFor="api-key-input" className="form-label" style={{ color: '#1E40AF', fontSize: '0.75rem' }}>
-                    Anthropic API Key *
-                  </label>
-                  <input
-                    id="api-key-input"
-                    type="password"
-                    className="form-control"
-                    placeholder="sk-ant-..."
-                    value={apiKey}
-                    onChange={(e) => setApiKey(e.target.value)}
-                    aria-describedby={validationErrors.apiKey ? "api-key-error" : undefined}
-                    style={{ minHeight: '38px', padding: '0.5rem 0.75rem', borderColor: '#93C5FD' }}
-                  />
-                  {validationErrors.apiKey && (
-                    <span className="error-message" id="api-key-error" role="alert">
-                      {validationErrors.apiKey}
-                    </span>
-                  )}
-                </div>
-              </section>
-            )}
 
-            {isDemoMode && (
-              <section className="api-key-banner" style={{ backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }} aria-labelledby="google-api-setup-title">
-                <div className="api-key-banner-title" id="google-api-setup-title" style={{ color: '#166534' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                    <path d="M12.65 11.65l2.1-2.1c.7-.7.7-1.9 0-2.6s-1.9-.7-2.6 0l-2.1 2.1c-.38-.05-.76-.08-1.15-.08C5.86 8.97 3 11.83 3 15.38c0 3.55 2.86 6.42 6.42 6.42 3.55 0 6.42-2.86 6.42-6.42 0-.39-.03-.77-.08-1.15l3.52-3.52c.2-.2.32-.47.32-.76v-2.1c0-.55-.45-1-1-1h-2.1c-.29 0-.56.12-.76.32l-1.1 1.1c-.2-.2-.47-.32-.76-.32h-2.1c-.55 0-1 .45-1 1v2.1c0 .29.12.56.32.76l.46.46zm-3.23 6.65c-1.38 0-2.5-1.12-2.5-2.5s1.12-2.5 2.5-2.5 2.5 1.12 2.5 2.5-1.12 2.5-2.5 2.5z" />
-                  </svg>
-                  <span>Google AI Studio Integration (Optional)</span>
-                </div>
-                <div className="api-key-banner-desc" style={{ color: '#14532D' }}>
-                  Enter your Google AI Studio API Key to upgrade the demo from local mock data to real, live generation using Gemini 1.5 Flash.
-                </div>
-                <div className="form-group" style={{ marginTop: '0.25rem' }}>
-                  <label htmlFor="google-api-key-input" className="form-label" style={{ color: '#166534', fontSize: '0.75rem' }}>
-                    Gemini API Key
-                  </label>
-                  <input
-                    id="google-api-key-input"
-                    type="password"
-                    className="form-control"
-                    placeholder="AIzaSy..."
-                    value={googleApiKey}
-                    onChange={(e) => setGoogleApiKey(e.target.value)}
-                    style={{ minHeight: '38px', padding: '0.5rem 0.75rem', borderColor: '#86EFAC' }}
-                  />
-                </div>
-              </section>
-            )}
 
             {/* Guided Flow Progress Steps */}
             <div className="progress-container" aria-label="Progress Tracker">
@@ -1432,6 +1371,12 @@ ${(results.budget_summary?.tips || []).map(tip => `  ${bullet} ${tip}`).join('\n
               >
                 Step 2: Budget & Preferences
               </h2>
+
+              {!isDemoMode && !apiKey.trim() && (
+                <div className="error-message" style={{ margin: '0 0 1.5rem 0', padding: '0.75rem 1rem', backgroundColor: '#FEF2F2', borderRadius: '8px', border: '1px solid #FCA5A5', lineHeight: '1.4' }}>
+                  <strong>Configuration Required:</strong> Anthropic API Key (<code>VITE_CLAUDE_API_KEY</code>) is not configured in the environment variables. Please configure it in your Netlify site settings or local env to use Live API Mode.
+                </div>
+              )}
 
               <div className="form-grid two-cols">
                 <div className="form-group">
