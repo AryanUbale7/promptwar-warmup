@@ -13,7 +13,20 @@ if (fs.existsSync(localEnvPath)) {
 }
 
 const app = express();
-app.use(cors());
+const allowedOrigins = [
+  'http://localhost:5173',
+  'http://localhost:3000',
+  'http://localhost:3001'
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.netlify.app')) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  }
+}));
 app.use(express.json());
 
 const PORT = process.env.PORT || 3001;
@@ -187,6 +200,10 @@ Respond ONLY with the JSON object. Do not wrap in markdown \`\`\`json blocks. Do
   }
 });
 
-app.listen(PORT, () => {
-  console.log(`Backend proxy server listening on port ${PORT}`);
-});
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(PORT, () => {
+    console.log(`Backend proxy server listening on port ${PORT}`);
+  });
+}
+
+export default app;

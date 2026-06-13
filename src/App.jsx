@@ -11,15 +11,35 @@ function App() {
   const [currentStep, setCurrentStep] = useState(1);
   
   // Step 1 State
-  const [dayDescription, setDayDescription] = useState('');
-  const [peopleCount, setPeopleCount] = useState(1);
-  const [skillLevel, setSkillLevel] = useState('Beginner');
+  const [dayDescription, setDayDescription] = useState(() => {
+    return sessionStorage.getItem('MEAL_PLANNER_DAY_DESC') || '';
+  });
+  const [peopleCount, setPeopleCount] = useState(() => {
+    const val = sessionStorage.getItem('MEAL_PLANNER_PEOPLE_COUNT');
+    return val ? parseInt(val, 10) : 1;
+  });
+  const [skillLevel, setSkillLevel] = useState(() => {
+    return sessionStorage.getItem('MEAL_PLANNER_SKILL_LEVEL') || 'Beginner';
+  });
 
   // Step 2 State
-  const [budget, setBudget] = useState('');
-  const [currency, setCurrency] = useState('INR'); // 'INR' or 'USD'
-  const [dietaryRestrictions, setDietaryRestrictions] = useState([]);
-  const [ownedIngredients, setOwnedIngredients] = useState('');
+  const [budget, setBudget] = useState(() => {
+    return sessionStorage.getItem('MEAL_PLANNER_BUDGET') || '';
+  });
+  const [currency, setCurrency] = useState(() => {
+    return sessionStorage.getItem('MEAL_PLANNER_CURRENCY') || 'INR';
+  });
+  const [dietaryRestrictions, setDietaryRestrictions] = useState(() => {
+    try {
+      const stored = sessionStorage.getItem('MEAL_PLANNER_DIETARY');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+  const [ownedIngredients, setOwnedIngredients] = useState(() => {
+    return sessionStorage.getItem('MEAL_PLANNER_OWNED_INGREDIENTS') || '';
+  });
 
   // API Config State - Google AI Studio API Key for local dev overrides
   const [googleApiKey, setGoogleApiKey] = useState(() => {
@@ -47,7 +67,7 @@ function App() {
   // References for accessibility focus management
   const stepHeadingRef = useRef(null);
 
-  // Save API key in session storage when changed
+  // Save API key and form state in session storage when changed
   useEffect(() => {
     if (googleApiKey) {
       sessionStorage.setItem('GOOGLE_AI_STUDIO_API_KEY', googleApiKey);
@@ -55,6 +75,16 @@ function App() {
       sessionStorage.removeItem('GOOGLE_AI_STUDIO_API_KEY');
     }
   }, [googleApiKey]);
+
+  useEffect(() => {
+    sessionStorage.setItem('MEAL_PLANNER_DAY_DESC', dayDescription);
+    sessionStorage.setItem('MEAL_PLANNER_PEOPLE_COUNT', peopleCount.toString());
+    sessionStorage.setItem('MEAL_PLANNER_SKILL_LEVEL', skillLevel);
+    sessionStorage.setItem('MEAL_PLANNER_BUDGET', budget);
+    sessionStorage.setItem('MEAL_PLANNER_CURRENCY', currency);
+    sessionStorage.setItem('MEAL_PLANNER_DIETARY', JSON.stringify(dietaryRestrictions));
+    sessionStorage.setItem('MEAL_PLANNER_OWNED_INGREDIENTS', ownedIngredients);
+  }, [dayDescription, peopleCount, skillLevel, budget, currency, dietaryRestrictions, ownedIngredients]);
 
   // Focus step heading when transitioning steps
   useEffect(() => {

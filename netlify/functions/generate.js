@@ -17,6 +17,20 @@ function sanitizeInput(text) {
 }
 
 export async function handler(event, context) {
+  const origin = event.headers.origin;
+  const allowedOrigins = [
+    'http://localhost:5173',
+    'http://localhost:3000',
+    'http://localhost:3001'
+  ];
+  const isAllowed = !origin || allowedOrigins.includes(origin) || origin.endsWith('.netlify.app');
+  if (!isAllowed) {
+    return {
+      statusCode: 403,
+      body: JSON.stringify({ error: 'CORS policy violation' })
+    };
+  }
+
   // Only allow POST requests
   if (event.httpMethod !== 'POST') {
     return {
